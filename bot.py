@@ -115,7 +115,9 @@ application.add_handler(MessageHandler(filters.Document.ALL & ~filters.Command()
 async def webhook():
     update = Update.de_json(request.get_json(force=True), application)
     print("Webhook received")
-    await application.process_update(update)
+    print(f"Update data: {update.to_dict()}")  # Debug update content
+    loop = asyncio.get_event_loop()
+    await loop.run_until_complete(application.process_update(update))
     return 'OK'
 
 # Run app
