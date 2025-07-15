@@ -5,6 +5,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from oauth2client.service_account import ServiceAccountCredentials
 import gspread
+import asyncio
 
 # Flask app
 app = Flask(__name__)
@@ -110,10 +111,10 @@ application.add_handler(MessageHandler(filters.Document.ALL & ~filters.Command()
 
 # Webhook route
 @app.route('/', methods=['POST'])
-def webhook():
+async def webhook():
     update = Update.de_json(request.get_json(force=True), application)
     print("Webhook received")
-    application.process_update(update)
+    await application.process_update(update)
     return 'OK'
 
 # Run app
