@@ -18,6 +18,7 @@ SHEET = GC.open_by_key("107KiGCg82U5dkqHHmDbmkgbeYq8XCSI6ECneEfl2j2I").sheet1
 
 # Telegram bot setup
 application = Application.builder().token(os.environ.get('BOT_TOKEN')).build()
+application.initialize()
 
 # Environment variables
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
