@@ -1,13 +1,10 @@
 import os
 import json
-from flask import Flask, request, Response
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from oauth2client.service_account import ServiceAccountCredentials
 import gspread
-import asyncio
-
-app = Flask(__name__)
+from waitress import serve
 
 # Google Sheets setup
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -17,11 +14,8 @@ SHEET = GC.open_by_key("107KiGCg82U5dkqHHmDbmkgbeYq8XCSI6ECneEfl2j2I").sheet1
 
 # Telegram bot setup
 application = Application.builder().token(os.environ.get('BOT_TOKEN')).build()
-
-# Environment variables
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
-ADMIN_IDS = os.environ.get('ADMIN_IDS', '').split(',')
 PORT = int(os.environ.get('PORT', 8443))
+WEBHOOK_URL = f"https://debre-amin-new-bot.onrender.com"
 
 # Data (in memory for now)
 COURSES = ["Prayer Basics", "Psalms Intro", "Church History"]
@@ -63,7 +57,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         progress = get_user_progress(user_id)
         message = "Your Progress:\n" + "\n".join([f"{course}: {prog}" for course, prog in progress.items()])
         await query.edit_message_text(message)
-    elif query.data == 'admin' and user_id in ADMIN_IDS:
+    elif query.data == 'admin' and user_id in os.environ.get('ADMIN_IDS', '').split(','):
         keyboard = [[InlineKeyboardButton("Add Course", callback_data='add_course')], [InlineKeyboardButton("Upload File", callback_data='upload_file')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text("Admin Options:", reply_markup=reply_markup)
@@ -78,7 +72,7 @@ async def update_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Updated {course} progress to: {progress}")
 
 async def add_course(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args or str(update.message.from_user.id) not in ADMIN_IDS:
+    if not context.args or str(update.message.from_user.id) not in os.environ.get('ADMIN_IDS', '').split(','):
         await update.message.reply_text("Only admins can add courses. Usage: /add_course <name>")
         return
     course = context.args[0]
@@ -90,11 +84,11 @@ async def add_course(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
-    if user_id in ADMIN_IDS and update.message.document:
+    if user_id in os.environ.get('ADMIN_IDS', '').split(',') and update.message.document:
         file = update.message.document
         if file.file_size <= 50 * 1024 * 1024 and file.mime_type == 'application/pdf':
-            file_path = application.bot.get_file(file.file_id).file_path
-            downloaded_file = application.bot.download_file(file_path)
+            file_path = await application.bot.get_file(file.file_id)
+            downloaded_file = await file_path.download_as_bytearray()
             with open(f"{file.file_name}", 'wb') as new_file:
                 new_file.write(downloaded_file)
             await update.message.reply_text(f"Uploaded {file.file_name}")
@@ -108,14 +102,14 @@ application.add_handler(CommandHandler("add_course", add_course))
 application.add_handler(CallbackQueryHandler(button))
 application.add_handler(MessageHandler(filters.Document.ALL & ~filters.Command(), handle_document))
 
-# Webhook route
-@app.route('/', methods=['POST'])
-async def webhook():
-    update = Update.de_json(request.get_json(force=True), application)
-    print("Webhook received")
-    print(f"Update data: {update.to_dict()}")  # Debug update content
-    await application.process_update(update)
-    return Response(status=200)
+# Webhook setup
+def run():
+    application.run_webhook(
+        listen='0.0.0.0',
+        port=PORT,
+        url_path='',
+        webhook_url=WEBHOOK_URL
+    )
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=PORT)
+    serve(run, host='0.0.0.0', port=PORT)
