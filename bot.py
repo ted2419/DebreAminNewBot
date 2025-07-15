@@ -111,12 +111,20 @@ application.add_handler(MessageHandler(filters.Document.ALL & ~filters.Command()
 # WSGI-compatible wrapper for webhook
 def application_wsgi(environ, start_response):
     try:
+        print(f"Received environ: {environ}")  # Debug environ
         body_size = int(environ.get('CONTENT_LENGTH', '0'))
-        body = environ['wsgi.input'].read(body_size) if body_size > 0 else b''
+        print(f"Content-Length: {body_size}")  # Debug content length
+        body = b''
+        if body_size > 0:
+            while True:
+                chunk = environ['wsgi.input'].read(body_size)
+                if not chunk:
+                    break
+                body += chunk
+        print(f"Raw body: {body}")  # Debug raw body
         if not body:
             raise ValueError("Empty request body received")
         update_data = json.loads(body.decode('utf-8'))
-        # Ensure the update has a valid bot context
         update = Update.de_json(update_data, application.bot)
 
         print("Webhook received")
