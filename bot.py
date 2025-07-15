@@ -124,4 +124,12 @@ def webhook():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(application
+        loop.run_until_complete(application.process_update(update))
+    finally:
+        loop.close()
+    return Response(status=200)
+
+# Run app with waitress
+if __name__ == '__main__':
+    from waitress import serve
+    serve(app, host='0.0.0.0', port=PORT)
