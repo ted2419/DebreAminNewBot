@@ -4,7 +4,6 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from oauth2client.service_account import ServiceAccountCredentials
 import gspread
-from waitress import serve
 
 # Google Sheets setup
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -15,7 +14,7 @@ SHEET = GC.open_by_key("107KiGCg82U5dkqHHmDbmkgbeYq8XCSI6ECneEfl2j2I").sheet1
 # Telegram bot setup
 application = Application.builder().token(os.environ.get('BOT_TOKEN')).build()
 PORT = int(os.environ.get('PORT', 8443))
-WEBHOOK_URL = f"https://debre-amin-new-bot.onrender.com"
+WEBHOOK_URL = "https://debre-amin-new-bot.onrender.com"
 
 # Data (in memory for now)
 COURSES = ["Prayer Basics", "Psalms Intro", "Church History"]
@@ -58,7 +57,10 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = "Your Progress:\n" + "\n".join([f"{course}: {prog}" for course, prog in progress.items()])
         await query.edit_message_text(message)
     elif query.data == 'admin' and user_id in os.environ.get('ADMIN_IDS', '').split(','):
-        keyboard = [[InlineKeyboardButton("Add Course", callback_data='add_course')], [InlineKeyboardButton("Upload File", callback_data='upload_file')]]
+        keyboard = [
+            [InlineKeyboardButton("Add Course", callback_data='add_course')],
+            [InlineKeyboardButton("Upload File", callback_data='upload_file')]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text("Admin Options:", reply_markup=reply_markup)
 
@@ -102,14 +104,11 @@ application.add_handler(CommandHandler("add_course", add_course))
 application.add_handler(CallbackQueryHandler(button))
 application.add_handler(MessageHandler(filters.Document.ALL & ~filters.Command(), handle_document))
 
-# Webhook setup
-def run():
+# Run bot with webhook
+if __name__ == '__main__':
     application.run_webhook(
         listen='0.0.0.0',
         port=PORT,
         url_path='',
         webhook_url=WEBHOOK_URL
     )
-
-if __name__ == '__main__':
-    serve(run, host='0.0.0.0', port=PORT)
