@@ -112,6 +112,7 @@ application.add_handler(MessageHandler(filters.Document.ALL & ~filters.Command()
 @app.route('/', methods=['POST'])
 def webhook():
     update = Update.de_json(request.get_json(force=True), application)
+    print("Webhook received")
     application.process_update(update)
     return 'OK'
 
