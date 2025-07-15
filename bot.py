@@ -116,7 +116,8 @@ def application_wsgi(environ, start_response):
         if not body:
             raise ValueError("Empty request body received")
         update_data = json.loads(body.decode('utf-8'))
-        update = Update.de_json(update_data, application)
+        # Ensure the update has a valid bot context
+        update = Update.de_json(update_data, application.bot)
 
         print("Webhook received")
         print(f"Update data: {update.to_dict()}")  # Debug update content
