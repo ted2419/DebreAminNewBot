@@ -1,6 +1,6 @@
 import os
 import json
-from flask import Flask, request
+from flask import Flask, request, Response
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from oauth2client.service_account import ServiceAccountCredentials
@@ -112,13 +112,19 @@ application.add_handler(MessageHandler(filters.Document.ALL & ~filters.Command()
 
 # Webhook route
 @app.route('/', methods=['POST'])
-async def webhook():
+def webhook():
     update = Update.de_json(request.get_json(force=True), application)
     print("Webhook received")
     print(f"Update data: {update.to_dict()}")  # Debug update content
-    await application.process_update(update)
-    return 'OK'
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(application.process_update(update))
+    finally:
+        loop.close()
+    return Response(status=200)
 
-# Run app with async support
+# Run app with waitress
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=PORT, threaded=True)
+    from waitress import serve
+    serve(app, host='0.0.0.0', port=PORT)
