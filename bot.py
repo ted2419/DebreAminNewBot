@@ -112,15 +112,13 @@ application.add_handler(MessageHandler(filters.Document.ALL & ~filters.Command()
 
 # Webhook route
 @app.route('/', methods=['POST'])
-def webhook():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+async def webhook():
     update = Update.de_json(request.get_json(force=True), application)
     print("Webhook received")
     print(f"Update data: {update.to_dict()}")  # Debug update content
-    loop.run_until_complete(application.process_update(update))
+    await application.process_update(update)
     return 'OK'
 
-# Run app
+# Run app with async support
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=PORT)
+    app.run(host='0.0.0.0', port=PORT, threaded=True)
