@@ -122,18 +122,19 @@ if __name__ == '__main__':
     class FlaskApplication(BaseApplication):
         def __init__(self, app, options=None):
             self.application = app
-            super().__init__()
             self.options = options or {}
+            super().__init__()
 
         def load_config(self):
             for key, value in self.options.items():
-                self.cfg.set(key.lower(), value)
+                if key.lower() in self.cfg.settings and value is not None:
+                    self.cfg.set(key.lower(), value)
 
         def load(self):
             return self.application
 
     options = {
-        'bind': '0.0.0.0:' + str(PORT),
+        'bind': f'0.0.0.0:{PORT}',
         'workers': 1,
         'worker_class': 'uvicorn.workers.UvicornWorker',
     }
