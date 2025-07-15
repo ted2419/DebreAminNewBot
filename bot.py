@@ -7,7 +7,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 import gspread
 import asyncio
 
-# Flask app
 app = Flask(__name__)
 
 # Google Sheets setup
@@ -15,6 +14,9 @@ SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/au
 CREDS = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(os.environ.get('GOOGLE_CREDENTIALS')), SCOPE)
 GC = gspread.authorize(CREDS)
 SHEET = GC.open_by_key("107KiGCg82U5dkqHHmDbmkgbeYq8XCSI6ECneEfl2j2I").sheet1
+
+# Telegram bot setup
+application = Application.builder().token(os.environ.get('BOT_TOKEN')).build()
 
 # Environment variables
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
@@ -99,37 +101,40 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("Please upload a PDF under 50MB.")
 
-# Register handlers (moved inside webhook to ensure initialization)
-def setup_handlers(app_instance):
-    app_instance.add_handler(CommandHandler("start", start))
-    app_instance.add_handler(CommandHandler("update_progress", update_progress))
-    app_instance.add_handler(CommandHandler("add_course", add_course))
-    app_instance.add_handler(CallbackQueryHandler(button))
-    app_instance.add_handler(MessageHandler(filters.Document.ALL & ~filters.Command(), handle_document))
+# Register handlers
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("update_progress", update_progress))
+application.add_handler(CommandHandler("add_course", add_course))
+application.add_handler(CallbackQueryHandler(button))
+application.add_handler(MessageHandler(filters.Document.ALL & ~filters.Command(), handle_document))
 
 # Webhook route
 @app.route('/', methods=['POST'])
-def webhook():
-    global application
-    if not hasattr(application, 'initialized') or not application.initialized:
-        application = Application.builder().token(os.environ.get('BOT_TOKEN')).build()
-        application.initialize()
-        setup_handlers(application)
-        application.initialized = True
-        print("Application reinitialized")
-
+async def webhook():
     update = Update.de_json(request.get_json(force=True), application)
     print("Webhook received")
     print(f"Update data: {update.to_dict()}")  # Debug update content
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(application.process_update(update))
-    finally:
-        loop.close()
+    await application.process_update(update)
     return Response(status=200)
 
-# Run app with waitress
 if __name__ == '__main__':
-    from waitress import serve
-    serve(app, host='0.0.0.0', port=PORT)
+    from gunicorn.app.base import BaseApplication
+    class FlaskApplication(BaseApplication):
+        def __init__(self, app, options=None):
+            self.application = app
+            super().__init__()
+            self.options = options or {}
+
+        def load_config(self):
+            for key, value in self.options.items():
+                self.cfg.set(key.lower(), value)
+
+        def load(self):
+            return self.application
+
+    options = {
+        'bind': '0.0.0.0:' + str(PORT),
+        'workers': 1,
+        'worker_class': 'uvicorn.workers.UvicornWorker',
+    }
+    FlaskApplication(app, options).run()
