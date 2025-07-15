@@ -5,6 +5,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from oauth2client.service_account import ServiceAccountCredentials
 import gspread
 from waitress import serve
+import asyncio
 
 # Google Sheets setup
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -104,24 +105,28 @@ application.add_handler(MessageHandler(filters.Document.ALL & ~filters.Command()
 
 # WSGI-compatible wrapper for webhook
 def application_wsgi(environ, start_response):
-    # This is a minimal WSGI wrapper to delegate to the webhook
-    class WebhookApp:
-        async def __call__(self, scope, receive, send):
-            update = Update.de_json(environ.get('wsgi.input'), application)
-            print("Webhook received")
-            print(f"Update data: {update.to_dict()}")  # Debug update content
-            await application.process_update(update)
-            start_response('200 OK', [('Content-Type', 'text/plain')])
-            return [b'OK']
-
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    # Read and parse the WSGI input stream
     try:
-        result = loop.run_until_complete(WebhookApp()(None, None, None))
-    finally:
-        loop.close()
-    return result
+        body_size = int(environ.get('CONTENT_LENGTH', '0'))
+        body = environ['wsgi.input'].read(body_size) if body_size > 0 else b''
+        update_data = json.loads(body.decode('utf-8'))
+        update = Update.de_json(update_data, application)
+
+        print("Webhook received")
+        print(f"Update data: {update.to_dict()}")  # Debug update content
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(application.process_update(update))
+        finally:
+            loop.close()
+
+        start_response('200 OK', [('Content-Type', 'text/plain')])
+        return [b'OK']
+    except Exception as e:
+        start_response('500 Internal Server Error', [('Content-Type', 'text/plain')])
+        return [str(e).encode('utf-8')]
 
 if __name__ == '__main__':
     serve(application_wsgi, host='0.0.0.0', port=PORT)
