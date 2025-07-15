@@ -15,6 +15,7 @@ SHEET = GC.open_by_key("107KiGCg82U5dkqHHmDbmkgbeYq8XCSI6ECneEfl2j2I").sheet1
 
 # Telegram bot setup
 application = Application.builder().token(os.environ.get('BOT_TOKEN')).build()
+application.initialize()  # Ensure initialization
 PORT = int(os.environ.get('PORT', 8443))
 WEBHOOK_URL = f"https://debre-amin-new-bot.onrender.com"
 
@@ -105,11 +106,10 @@ application.add_handler(MessageHandler(filters.Document.ALL & ~filters.Command()
 
 # WSGI-compatible wrapper for webhook
 def application_wsgi(environ, start_response):
-    # Read and parse the WSGI input stream
     try:
         body_size = int(environ.get('CONTENT_LENGTH', '0'))
         body = environ['wsgi.input'].read(body_size) if body_size > 0 else b''
-        update_data = json.loads(body.decode('utf-8'))
+        update_data = json.loads(body.decode('utf-8')) if body else {}
         update = Update.de_json(update_data, application)
 
         print("Webhook received")
@@ -119,6 +119,8 @@ def application_wsgi(environ, start_response):
         asyncio.set_event_loop(loop)
         try:
             loop.run_until_complete(application.process_update(update))
+        except Exception as e:
+            print(f"Error processing update: {e}")
         finally:
             loop.close()
 
@@ -126,6 +128,7 @@ def application_wsgi(environ, start_response):
         return [b'OK']
     except Exception as e:
         start_response('500 Internal Server Error', [('Content-Type', 'text/plain')])
+        print(f"Webhook error: {e}")
         return [str(e).encode('utf-8')]
 
 if __name__ == '__main__':
