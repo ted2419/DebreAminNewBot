@@ -14,8 +14,12 @@ GC = gspread.authorize(CREDS)
 SHEET = GC.open_by_key("107KiGCg82U5dkqHHmDbmkgbeYq8XCSI6ECneEfl2j2I").sheet1
 
 # Telegram bot setup
-application = Application.builder().token(os.environ.get('BOT_TOKEN')).build()
-application.initialize()  # Ensure initialization
+async def init_application():
+    application = Application.builder().token(os.environ.get('BOT_TOKEN')).build()
+    await application.initialize()  # Proper async initialization
+    return application
+
+application = asyncio.run(init_application())
 PORT = int(os.environ.get('PORT', 8443))
 WEBHOOK_URL = f"https://debre-amin-new-bot.onrender.com"
 
@@ -109,7 +113,9 @@ def application_wsgi(environ, start_response):
     try:
         body_size = int(environ.get('CONTENT_LENGTH', '0'))
         body = environ['wsgi.input'].read(body_size) if body_size > 0 else b''
-        update_data = json.loads(body.decode('utf-8')) if body else {}
+        if not body:
+            raise ValueError("Empty request body received")
+        update_data = json.loads(body.decode('utf-8'))
         update = Update.de_json(update_data, application)
 
         print("Webhook received")
@@ -126,6 +132,10 @@ def application_wsgi(environ, start_response):
 
         start_response('200 OK', [('Content-Type', 'text/plain')])
         return [b'OK']
+    except json.JSONDecodeError as e:
+        start_response('400 Bad Request', [('Content-Type', 'text/plain')])
+        print(f"JSON decode error: {e}")
+        return [b"Invalid JSON"]
     except Exception as e:
         start_response('500 Internal Server Error', [('Content-Type', 'text/plain')])
         print(f"Webhook error: {e}")
