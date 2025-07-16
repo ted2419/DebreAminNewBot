@@ -1,11 +1,18 @@
 import os
 import json
+import asyncio
+from flask import Flask, request
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from oauth2client.service_account import ServiceAccountCredentials
 import gspread
-from waitress import serve
-import asyncio
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Initialize Flask app
+app = Flask(__name__)
 
 # Google Sheets setup
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -16,12 +23,12 @@ SHEET = GC.open_by_key("107KiGCg82U5dkqHHmDbmkgbeYq8XCSI6ECneEfl2j2I").sheet1
 # Telegram bot setup
 async def init_application():
     application = Application.builder().token(os.environ.get('BOT_TOKEN')).build()
-    await application.initialize()  # Proper async initialization
+    await application.initialize()
     return application
 
 application = asyncio.run(init_application())
-PORT = int(os.environ.get('PORT', 8443))
-WEBHOOK_URL = f"https://debre-amin-new-bot.onrender.com"
+WEBHOOK_URL = os.environ.get('WEBHOOK_URL', 'https://debre-amin-new-bot.onrender.com')
+TELEGRAM_TOKEN = os.environ.get('BOT_TOKEN')
 
 # Data (in memory for now)
 COURSES = ["Prayer Basics", "Psalms Intro", "Church History"]
@@ -63,7 +70,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         progress = get_user_progress(user_id)
         message = "Your Progress:\n" + "\n".join([f"{course}: {prog}" for course, prog in progress.items()])
         await query.edit_message_text(message)
-    elif query.data == 'admin' and user_id in os.environ.get('ADMIN_IDS', '').split(','):
+    elif query.data == 'admin' and user_id == '5899761420':
         keyboard = [[InlineKeyboardButton("Add Course", callback_data='add_course')], [InlineKeyboardButton("Upload File", callback_data='upload_file')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text("Admin Options:", reply_markup=reply_markup)
@@ -78,8 +85,12 @@ async def update_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Updated {course} progress to: {progress}")
 
 async def add_course(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args or str(update.message.from_user.id) not in os.environ.get('ADMIN_IDS', '').split(','):
-        await update.message.reply_text("Only admins can add courses. Usage: /add_course <name>")
+    user_id = str(update.message.from_user.id)
+    if user_id != '5899761420':
+        await update.message.reply_text("Only admins can add courses.")
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: /add_course <name>")
         return
     course = context.args[0]
     if course not in COURSES:
@@ -90,16 +101,18 @@ async def add_course(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
-    if user_id in os.environ.get('ADMIN_IDS', '').split(',') and update.message.document:
-        file = update.message.document
-        if file.file_size <= 50 * 1024 * 1024 and file.mime_type == 'application/pdf':
-            file_path = await application.bot.get_file(file.file_id)
-            downloaded_file = await file_path.download_as_bytearray()
-            with open(f"{file.file_name}", 'wb') as new_file:
-                new_file.write(downloaded_file)
-            await update.message.reply_text(f"Uploaded {file.file_name}")
-        else:
-            await update.message.reply_text("Please upload a PDF under 50MB.")
+    if user_id != '5899761420' or not update.message.document:
+        await update.message.reply_text("Only admins can upload files.")
+        return
+    file = update.message.document
+    if file.file_size <= 50 * 1024 * 1024 and file.mime_type == 'application/pdf':
+        file_path = await application.bot.get_file(file.file_id)
+        downloaded_file = await file_path.download_as_bytearray()
+        with open(f"{file.file_name}", 'wb') as new_file:
+            new_file.write(downloaded_file)
+        await update.message.reply_text(f"Uploaded {file.file_name}")
+    else:
+        await update.message.reply_text("Please upload a PDF under 50MB.")
 
 # Register handlers
 application.add_handler(CommandHandler("start", start))
@@ -108,47 +121,44 @@ application.add_handler(CommandHandler("add_course", add_course))
 application.add_handler(CallbackQueryHandler(button))
 application.add_handler(MessageHandler(filters.Document.ALL & ~filters.Command(), handle_document))
 
-# WSGI-compatible wrapper for webhook
-def application_wsgi(environ, start_response):
+# Flask webhook route
+@app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
+def webhook():
     try:
-        print(f"Received environ: {environ}")  # Debug environ
-        body_size = int(environ.get('CONTENT_LENGTH', '0'))
-        print(f"Content-Length: {body_size}")  # Debug content length
-        body = b''
-        if body_size > 0:
-            while True:
-                chunk = environ['wsgi.input'].read(body_size)
-                if not chunk:
-                    break
-                body += chunk
-        print(f"Raw body: {body}")  # Debug raw body
-        if not body:
-            raise ValueError("Empty request body received")
-        update_data = json.loads(body.decode('utf-8'))
+        update_data = request.get_json(force=True)
+        if not update_data:
+            print("Empty request body received")
+            return 'Bad Request', 400
         update = Update.de_json(update_data, application.bot)
-
-        print("Webhook received")
-        print(f"Update data: {update.to_dict()}")  # Debug update content
-
+        if not update:
+            print("Invalid update data")
+            return 'Bad Request', 400
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             loop.run_until_complete(application.process_update(update))
-        except Exception as e:
-            print(f"Error processing update: {e}")
         finally:
             loop.close()
-
-        start_response('200 OK', [('Content-Type', 'text/plain')])
-        return [b'OK']
-    except json.JSONDecodeError as e:
-        start_response('400 Bad Request', [('Content-Type', 'text/plain')])
-        print(f"JSON decode error: {e}")
-        return [b"Invalid JSON"]
+        return 'OK', 200
     except Exception as e:
-        start_response('500 Internal Server Error', [('Content-Type', 'text/plain')])
-        print(f"Webhook error: {e}")
-        return [str(e).encode('utf-8')]
+        print(f"Webhook error: {str(e)}")
+        return f'Error: {str(e)}', 500
+
+# Route to set webhook
+@app.route('/set_webhook', methods=['GET'])
+def set_webhook():
+    try:
+        application.bot.set_webhook(url=f'{WEBHOOK_URL}/{TELEGRAM_TOKEN}')
+        return f"Webhook set to {WEBHOOK_URL}/{TELEGRAM_TOKEN}", 200
+    except Exception as e:
+        return f"Failed to set webhook: {str(e)})", 500
+
+# Default route
+@app.route('/')
+def home():
+    return "Telegram bot is running!"
 
 if __name__ == '__main__':
-    serve(application_wsgi, host='0.0.0.0', port=PORT)
+    from waitress import serve
+    port = int(os.environ.get('PORT', 8443))
+    serve(app, host='0.0.0.0', port=port)
